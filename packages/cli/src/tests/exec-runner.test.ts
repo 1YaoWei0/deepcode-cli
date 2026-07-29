@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type {
+  AskPermissionRequest,
   ResolvedDeepcodingSettings,
   SessionEntry,
   SessionManagerOptions,
@@ -12,7 +13,14 @@ import type { ExecInputStream } from "../exec-input";
 
 const RESUME_ID = "0a5cb7a5-c39d-4c39-a11b-05f8b22b8df6";
 
-function createSettings(): ResolvedDeepcodingSettings {
+function createSettings(
+  permissions: ResolvedDeepcodingSettings["permissions"] = {
+    allow: [],
+    deny: [],
+    ask: [],
+    defaultMode: "allowAll",
+  }
+): ResolvedDeepcodingSettings {
   return {
     env: {},
     baseURL: "https://example.invalid",
@@ -21,7 +29,7 @@ function createSettings(): ResolvedDeepcodingSettings {
     reasoningEffort: "high",
     debugLogEnabled: false,
     telemetryEnabled: false,
-    permissions: { allow: [], deny: [], ask: [], defaultMode: "allowAll" },
+    permissions,
     enabledSkills: {},
     statusline: { enabled: false, refreshMs: 1000, separator: " | ", providers: [] },
   };
@@ -70,6 +78,8 @@ type ManagerScenario = {
   resumeExists?: boolean;
   throwFromPrompt?: Error;
   duringPrompt?: () => void;
+  askPermissions?: AskPermissionRequest[];
+  permissions?: ResolvedDeepcodingSettings["permissions"];
 };
 
 function createHarness(scenario: ManagerScenario = {}) {
@@ -85,7 +95,7 @@ function createHarness(scenario: ManagerScenario = {}) {
   let initializedMcp: unknown;
 
   const dependencies: Partial<ExecRunnerDependencies> = {
-    resolveSettings: () => createSettings(),
+    resolveSettings: () => createSettings(scenario.permissions),
     signalTarget: {
       on: (_event, listener) => signalListeners.add(listener),
       off: (_event, listener) => signalListeners.delete(listener),
@@ -125,6 +135,7 @@ function createHarness(scenario: ManagerScenario = {}) {
           entry = createEntry(activeId, scenario.finalStatus ?? "completed", {
             assistantReply: scenario.finalReply === undefined ? "final answer" : scenario.finalReply,
             failReason: scenario.failReason ?? null,
+            askPermissions: scenario.askPermissions,
           });
           options.onSessionEntryUpdated?.(entry);
         },
@@ -218,18 +229,44 @@ test("runExecMode rejects a missing resume session and disposes resources", asyn
   assert.equal(harness.disposed, 1);
 });
 
-test("runExecMode treats permission and user-input states as failures", async () => {
-  for (const status of ["ask_permission", "waiting_for_user"] as const) {
-    const harness = createHarness({ finalStatus: status });
-    const code = await runExecMode(
-      { prompt: "task", projectRoot: "/tmp/project", input: ttyInput() },
-      harness.dependencies
-    );
-    assert.equal(code, 1);
-    assert.deepEqual(harness.stdout, []);
-    assert.match(harness.stderr.join("\n"), /unavailable in --exec mode/);
-    assert.equal(harness.disposed, 1);
-  }
+test("runExecMode reports the tool, action, scope, and reason for required permission", async () => {
+  const harness = createHarness({
+    finalStatus: "ask_permission",
+    permissions: { allow: [], deny: [], ask: ["network"], defaultMode: "allowAll" },
+    askPermissions: [
+      {
+        toolCallId: "weather-search",
+        name: "WebSearch",
+        command: "重庆未来3天天气预报",
+        scopes: ["network"],
+      },
+    ],
+  });
+  const code = await runExecMode(
+    { prompt: "task", projectRoot: "/tmp/project", input: ttyInput() },
+    harness.dependencies
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(harness.stdout, []);
+  assert.equal(harness.stderr.length, 1);
+  assert.match(harness.stderr[0], /Tool: WebSearch/);
+  assert.match(harness.stderr[0], /Action: 重庆未来3天天气预报/);
+  assert.match(harness.stderr[0], /network: network access/);
+  assert.match(harness.stderr[0], /"network" is configured in permissions\.ask/);
+  assert.equal(harness.disposed, 1);
+});
+
+test("runExecMode treats unexpected user-input states as failures", async () => {
+  const harness = createHarness({ finalStatus: "waiting_for_user" });
+  const code = await runExecMode(
+    { prompt: "task", projectRoot: "/tmp/project", input: ttyInput() },
+    harness.dependencies
+  );
+  assert.equal(code, 1);
+  assert.deepEqual(harness.stdout, []);
+  assert.match(harness.stderr.join("\n"), /unavailable in --exec mode/);
+  assert.equal(harness.disposed, 1);
 });
 
 test("runExecMode reports model failures on stderr", async () => {

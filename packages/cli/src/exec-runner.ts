@@ -2,6 +2,9 @@ import {
   SessionManager,
   createOpenAIClient,
   resolveCurrentSettings,
+  type AskPermissionRequest,
+  type AskPermissionScope,
+  type PermissionSettings,
   type SessionManagerOptions,
 } from "@vegamo/deepcode-core";
 import { buildExecPrompt, type ExecInputStream } from "./exec-input";
@@ -110,9 +113,7 @@ export async function runExecMode(
       return 1;
     }
     if (session.status === "ask_permission") {
-      deps.writeStderrLine(
-        "Execution requires permission confirmation, which is unavailable in --exec mode. Update permissions or run interactively."
-      );
+      deps.writeStderrLine(formatPermissionConfirmationError(session.askPermissions, settings.permissions));
       return 1;
     }
     if (session.status === "waiting_for_user") {
@@ -139,4 +140,85 @@ export async function runExecMode(
     deps.signalTarget.off("SIGINT", handleSigint);
     manager?.dispose();
   }
+}
+
+export function formatPermissionConfirmationError(
+  requests: AskPermissionRequest[] | undefined,
+  settings: Required<PermissionSettings>
+): string {
+  const lines = ["Execution requires permission confirmation, which is unavailable in --exec mode."];
+  if (!requests?.length) {
+    lines.push("No permission request details were provided.");
+  } else {
+    lines.push(requests.length === 1 ? "Permission request:" : "Permission requests:");
+    for (const request of requests) {
+      lines.push(`- Tool: ${sanitizeDiagnosticValue(request.name) || "unknown"}`);
+      const action = sanitizeDiagnosticValue(request.command);
+      if (action) {
+        lines.push(`  Action: ${action}`);
+      }
+      const description = sanitizeDiagnosticValue(request.description ?? "");
+      if (description) {
+        lines.push(`  Description: ${description}`);
+      }
+      const scopes = request.scopes.length > 0 ? request.scopes : (["unknown"] as const);
+      lines.push("  Permissions:");
+      for (const scope of scopes) {
+        lines.push(`    - ${scope}: ${describePermissionScope(scope)}`);
+        lines.push(`      Reason: ${describePermissionReason(scope, settings)}`);
+      }
+    }
+  }
+  lines.push(
+    "Run interactively to approve the request. To allow it in --exec mode, remove the required scopes from permissions.ask and add them to permissions.allow as appropriate."
+  );
+  return lines.join("\n");
+}
+
+function describePermissionScope(scope: AskPermissionScope): string {
+  switch (scope) {
+    case "read-in-cwd":
+      return "read files inside the workspace";
+    case "read-out-cwd":
+      return "read files outside the workspace";
+    case "write-in-cwd":
+      return "write files inside the workspace";
+    case "write-out-cwd":
+      return "write files outside the workspace";
+    case "delete-in-cwd":
+      return "delete files inside the workspace";
+    case "delete-out-cwd":
+      return "delete files outside the workspace";
+    case "query-git-log":
+      return "query Git history";
+    case "mutate-git-log":
+      return "change Git history";
+    case "network":
+      return "network access";
+    case "mcp":
+      return "MCP tool access";
+    case "unknown":
+      return "unclassified side effects";
+  }
+}
+
+function describePermissionReason(scope: AskPermissionScope, settings: Required<PermissionSettings>): string {
+  if (scope === "unknown") {
+    return "the tool's side effects could not be classified safely.";
+  }
+  if (settings.ask.includes(scope)) {
+    return `"${scope}" is configured in permissions.ask.`;
+  }
+  if (settings.defaultMode === "askAll" && !settings.allow.includes(scope)) {
+    return `permissions.defaultMode is "askAll" and "${scope}" is not configured in permissions.allow.`;
+  }
+  return `"${scope}" requires confirmation for this tool call.`;
+}
+
+function sanitizeDiagnosticValue(value: string): string {
+  const normalized = value
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized.length > 500 ? `${normalized.slice(0, 497)}...` : normalized;
 }
