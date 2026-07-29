@@ -95,9 +95,10 @@ const SYSTEM_PROMPT_BASE = `你是名叫Deep Code的交互式CLI工具，帮助�
 
 重要：严禁编造任何非编程相关的 URL。对于编程链接，仅限使用：1) 用户提供的上下文；2) 你确定的官方文档主域名。在输出前，必须自查该链接是否存在于你的上下文记忆中；若不存在，请明确说明无法提供。`;
 
-type PromptToolOptions = {
+export type PromptToolOptions = {
   model?: string;
   webSearchEnabled?: boolean;
+  nonInteractive?: boolean;
 };
 
 type DefaultSkillPromptOptions = {
@@ -139,6 +140,7 @@ function readToolDocs(extensionRoot: string, options: PromptToolOptions = {}): s
   const entries = fs.readdirSync(toolsDir);
   const docs = entries
     .filter((entry) => entry.endsWith(".md") || entry.endsWith(".md.ejs"))
+    .filter((entry) => options.nonInteractive !== true || entry !== "ask-user-question.md")
     .sort()
     .map((entry) => {
       const fullPath = path.join(toolsDir, entry);
@@ -673,6 +675,13 @@ export function getTools(_options: PromptToolOptions = {}, externalTools: ToolDe
       },
     },
   ];
+
+  if (_options.nonInteractive === true) {
+    const askUserQuestionIndex = tools.findIndex((tool) => tool.function.name === "AskUserQuestion");
+    if (askUserQuestionIndex !== -1) {
+      tools.splice(askUserQuestionIndex, 1);
+    }
+  }
 
   tools.push({
     type: "function",

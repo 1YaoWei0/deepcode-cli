@@ -33,6 +33,33 @@ test("getTools always includes WebSearch", () => {
   assert.equal(names.includes("WebSearch"), true);
 });
 
+test("interactive prompt and tools include AskUserQuestion", () => {
+  assert.equal(getSystemPrompt("/tmp/project").includes("## AskUserQuestion"), true);
+  assert.equal(
+    getTools().some((tool) => tool.function.name === "AskUserQuestion"),
+    true
+  );
+});
+
+test("non-interactive prompt and tools exclude only AskUserQuestion", () => {
+  const externalTool = {
+    type: "function" as const,
+    function: {
+      name: "mcp_example",
+      description: "MCP example",
+      parameters: { type: "object" as const, properties: {} },
+    },
+  };
+  const prompt = getSystemPrompt("/tmp/project", { nonInteractive: true });
+  const names = getTools({ nonInteractive: true }, [externalTool]).map((tool) => tool.function.name);
+
+  assert.equal(prompt.includes("## AskUserQuestion"), false);
+  assert.equal(prompt.includes("## Bash"), true);
+  assert.equal(names.includes("AskUserQuestion"), false);
+  assert.equal(names.includes("bash"), true);
+  assert.equal(names.includes("mcp_example"), true);
+});
+
 test("getTools includes UpdatePlan with string plan schema", () => {
   const tool = getTools().find((candidate) => candidate.function.name === "UpdatePlan");
   assert.ok(tool);

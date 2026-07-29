@@ -47,6 +47,7 @@ export type {
   SessionProcessEntry,
   BashTimeoutAdjustment,
   LlmStreamProgress,
+  SessionManagerOptions,
 } from "./session";
 
 // Prompt utilities
@@ -60,7 +61,7 @@ export {
   getTools,
   buildSkillDocumentsPrompt,
 } from "./prompt";
-export type { ToolDefinition, SkillPromptDocument } from "./prompt";
+export type { ToolDefinition, SkillPromptDocument, PromptToolOptions } from "./prompt";
 
 // Tools
 export { ToolExecutor } from "./tools/executor";

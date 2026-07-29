@@ -6,6 +6,7 @@ import * as os from "os";
 import * as path from "path";
 import { GitFileHistory } from "../common/file-history";
 import { clearSessionState } from "../common/state";
+import { getSystemPrompt } from "../prompt";
 import { getProjectCode, SessionManager, type SessionMessage } from "../session";
 
 const originalFetch = globalThis.fetch;
@@ -108,6 +109,46 @@ test("SessionManager preserves structured system content when building OpenAI me
       image_url: { url: "data:image/png;base64,abc123" },
     },
   ]);
+});
+
+test("non-interactive SessionManager removes AskUserQuestion docs from restored requests", () => {
+  const manager = new SessionManager({
+    projectRoot: process.cwd(),
+    createOpenAIClient: () => ({
+      client: null,
+      model: "test-model",
+      thinkingEnabled: false,
+    }),
+    getResolvedSettings: () => ({ model: "test-model" }),
+    renderMarkdown: (text) => text,
+    onAssistantMessage: () => {},
+    nonInteractive: true,
+  });
+  const now = "2026-01-01T00:00:00.000Z";
+  const restoredMessages: SessionMessage[] = [
+    {
+      id: "old-system",
+      sessionId: "restored-session",
+      role: "system",
+      content: getSystemPrompt(process.cwd()),
+      contentParams: null,
+      messageParams: null,
+      compacted: false,
+      visible: false,
+      createTime: now,
+      updateTime: now,
+    },
+  ];
+
+  const prepared = (
+    manager as unknown as {
+      prepareSessionMessagesForRequest: (messages: SessionMessage[]) => SessionMessage[];
+    }
+  ).prepareSessionMessagesForRequest(restoredMessages);
+
+  assert.equal(restoredMessages[0].content?.includes("## AskUserQuestion"), true);
+  assert.equal(prepared[0].content?.includes("## AskUserQuestion"), false);
+  assert.equal(prepared[0].content?.includes("## Bash"), true);
 });
 
 test("SessionManager appends failed background log tail as XML", () => {
