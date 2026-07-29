@@ -304,7 +304,7 @@ export type SkillInfo = {
   allowImplicitInvocation?: boolean;
 };
 
-type SessionManagerOptions = {
+export type SessionManagerOptions = {
   projectRoot: string;
   createOpenAIClient: CreateOpenAIClient;
   getResolvedSettings: () => {
@@ -320,6 +320,7 @@ type SessionManagerOptions = {
   onLlmStreamProgress?: (progress: LlmStreamProgress) => void;
   onMcpStatusChanged?: () => void;
   onProcessStdout?: (pid: number, chunk: string) => void;
+  nonInteractive?: boolean;
 };
 
 export type LlmStreamProgress = {
@@ -346,6 +347,7 @@ export class SessionManager {
   private readonly onLlmStreamProgress?: (progress: LlmStreamProgress) => void;
   private readonly onMcpStatusChanged?: () => void;
   private readonly onProcessStdout?: (pid: number, chunk: string) => void;
+  private readonly nonInteractive: boolean;
   private activeSessionId: string | null = null;
   private activePromptController: AbortController | null = null;
   private readonly sessionControllers = new Map<string, AbortController>();
@@ -365,6 +367,7 @@ export class SessionManager {
     this.onLlmStreamProgress = options.onLlmStreamProgress;
     this.onMcpStatusChanged = options.onMcpStatusChanged;
     this.onProcessStdout = options.onProcessStdout;
+    this.nonInteractive = options.nonInteractive === true;
     this.toolExecutor = new ToolExecutor(this.projectRoot, this.createOpenAIClient, this.mcpManager);
     this.mcpManager.prepare(this.getResolvedSettings().mcpServers);
     this.messageConverter = new OpenAIMessageConverter({
@@ -1372,7 +1375,7 @@ ${agentInstructions}
         }
 
         const messages = this.messageConverter.buildMessages(
-          this.listSessionMessages(sessionId),
+          this.prepareSessionMessagesForRequest(this.listSessionMessages(sessionId)),
           thinkingEnabled,
           model
         );
@@ -1608,11 +1611,32 @@ ${agentInstructions}
     this.saveSessionMessages(sessionId, sessionMessages);
   }
 
-  private getPromptToolOptions(): { model: string; webSearchEnabled: boolean } {
+  private getPromptToolOptions(): { model: string; webSearchEnabled: boolean; nonInteractive: boolean } {
     return {
       model: this.getResolvedSettings().model,
       webSearchEnabled: true,
+      nonInteractive: this.nonInteractive,
     };
+  }
+
+  private prepareSessionMessagesForRequest(messages: SessionMessage[]): SessionMessage[] {
+    if (!this.nonInteractive) {
+      return messages;
+    }
+
+    const systemPromptIndex = messages.findIndex(
+      (message) => message.role === "system" && message.content?.includes("# Available Tools")
+    );
+    if (systemPromptIndex === -1) {
+      return messages;
+    }
+
+    const prepared = messages.slice();
+    prepared[systemPromptIndex] = {
+      ...prepared[systemPromptIndex],
+      content: getSystemPrompt(this.projectRoot, this.getPromptToolOptions()),
+    };
+    return prepared;
   }
 
   private reportNewPrompt(): void {

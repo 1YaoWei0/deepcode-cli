@@ -1,4 +1,3 @@
-import React from "react";
 import { render } from "ink";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -10,6 +9,7 @@ import { parseArguments } from "./cli-args";
 import { writeStderrLine, writeStdoutLine } from "./utils/stdio-helpers";
 import { getPackageJson } from "./utils/package";
 import { CLI_VERSION } from "./generated/git-commit";
+import { runExecMode } from "./exec-runner";
 
 void main();
 
@@ -31,6 +31,15 @@ async function main(): Promise<void> {
   let initialPrompt = parsed.prompt;
   let resumeSessionId = parsed.resume;
   const projectRoot = process.cwd();
+
+  if (parsed.exec) {
+    process.exitCode = await runExecMode({
+      prompt: parsed.prompt!,
+      projectRoot,
+      resumeSessionId: typeof parsed.resume === "string" ? parsed.resume : undefined,
+    });
+    return;
+  }
 
   if (!process.stdin.isTTY) {
     writeStderrLine("deepcode requires an interactive terminal (TTY). Re-run from a real terminal session.\n");

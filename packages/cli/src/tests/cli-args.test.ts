@@ -20,6 +20,19 @@ test("parseArguments returns prompt after -p", async () => {
   const r = await parseArguments(["-p", "hello world"]);
   assert.ok(!("message" in r));
   assert.equal(r.prompt, "hello world");
+  assert.equal(r.exec, false);
+});
+
+test("parseArguments enables exec mode with -x", async () => {
+  const r = await parseArguments(["-x", "-p", "hello world"]);
+  assert.equal(r.exec, true);
+  assert.equal(r.prompt, "hello world");
+});
+
+test("parseArguments enables exec mode with --exec", async () => {
+  const r = await parseArguments(["--exec", "--prompt", "hello world"]);
+  assert.equal(r.exec, true);
+  assert.equal(r.prompt, "hello world");
 });
 
 test("parseArguments returns prompt after --prompt", async () => {
@@ -59,6 +72,7 @@ test("parseArguments returns defaults for empty args", async () => {
   assert.equal(r.resume, undefined);
   assert.equal(r.version, false);
   assert.equal(r.help, false);
+  assert.equal(r.exec, false);
 });
 
 // ── parseArguments: -r alias ───────────────────────────────────────────────────
@@ -80,6 +94,13 @@ test("parseArguments handles -r <id> combined with -p", async () => {
   assert.ok(!("message" in r));
   assert.equal(r.resume, "0a5cb7a5-c39d-4c39-a11b-05f8b22b8df6");
   assert.equal(r.prompt, "hello");
+});
+
+test("parseArguments handles exec prompt with a session ID", async () => {
+  const r = await parseArguments(["-x", "-p", "hello", "-r", "0a5cb7a5-c39d-4c39-a11b-05f8b22b8df6"]);
+  assert.equal(r.exec, true);
+  assert.equal(r.prompt, "hello");
+  assert.equal(r.resume, "0a5cb7a5-c39d-4c39-a11b-05f8b22b8df6");
 });
 
 // ── parseArguments: --version / --help ─────────────────────────────────────────
@@ -196,6 +217,39 @@ test("parseArguments exits on empty -p value", async () => {
       /* expected */
     }
     assert.ok(exitSpy.calls.length >= 1);
+  });
+});
+
+test("parseArguments exits when exec mode has no -p", async () => {
+  await withMockedExit(async (exitSpy) => {
+    try {
+      await parseArguments(["-x"]);
+    } catch {
+      /* expected */
+    }
+    assert.ok(exitSpy.calls.includes(1));
+  });
+});
+
+test("parseArguments exits when exec prompt is whitespace", async () => {
+  await withMockedExit(async (exitSpy) => {
+    try {
+      await parseArguments(["-x", "-p", "   "]);
+    } catch {
+      /* expected */
+    }
+    assert.ok(exitSpy.calls.includes(1));
+  });
+});
+
+test("parseArguments does not use a positional query as the exec prompt", async () => {
+  await withMockedExit(async (exitSpy) => {
+    try {
+      await parseArguments(["-x", "positional prompt"]);
+    } catch {
+      /* expected */
+    }
+    assert.ok(exitSpy.calls.includes(1));
   });
 });
 
