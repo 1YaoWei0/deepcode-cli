@@ -178,12 +178,7 @@ export async function handleEditTool(
         const lineIndex = buildLineIndex(raw);
         const scope = buildSearchScope(filePath, raw, lineIndex, snippet);
         let matches: MatchOccurrence[] = [];
-        let matchedVia:
-          | "exact"
-          | "empty_file"
-          | "line_leading_tab_correction"
-          | "loose_escape"
-          | "llm_escape_correction" = "exact";
+        let matchedVia: "exact" | "empty_file" | "line_leading_tab_correction" | "llm_escape_correction" = "exact";
         let replacementOldString = oldString;
         let replacementNewString = newString;
 
@@ -236,18 +231,10 @@ export async function handleEditTool(
             );
 
             if (correctedStrings) {
-              const correctedMatches = findOccurrences(raw, correctedStrings.oldString, scope);
-              if (correctedMatches.length > 0) {
-                matches = correctedMatches;
-                matchedVia = "llm_escape_correction";
-                replacementOldString = correctedStrings.oldString;
-                replacementNewString = correctedStrings.newString;
-              }
-            }
-
-            if (matches.length === 0) {
               matches = [looseEscapeMatches[0]];
-              matchedVia = "loose_escape";
+              matchedVia = "llm_escape_correction";
+              replacementOldString = correctedStrings.oldString;
+              replacementNewString = correctedStrings.newString;
             }
           }
         }
@@ -612,7 +599,7 @@ function buildLooseEscapeRegex(source: string): RegExp | null {
 
       if (slashEnd < source.length) {
         pattern += "\\\\*";
-        pattern += escapeRegExp(source[slashEnd]);
+        pattern += buildLooseCharacterPattern(source[slashEnd]);
         index = slashEnd;
         continue;
       }
@@ -622,10 +609,20 @@ function buildLooseEscapeRegex(source: string): RegExp | null {
       continue;
     }
 
-    pattern += escapeRegExp(source[index]);
+    pattern += buildLooseCharacterPattern(source[index]);
   }
 
   return new RegExp(pattern, "g");
+}
+
+function buildLooseCharacterPattern(character: string): string {
+  if (character === '"' || character === "“" || character === "”") {
+    return '["“”]';
+  }
+  if (character === "'" || character === "‘" || character === "’") {
+    return "['‘’]";
+  }
+  return escapeRegExp(character);
 }
 
 async function inferOldStringNotFoundReasonWithLLM(
@@ -731,13 +728,14 @@ async function correctEscapedStringsWithLLM(
   }
 
   try {
+    const problemDescription = describeCorrectionProblems(oldString, matchedText);
     const response = await client.chat.completions.create({
       model,
       messages: [
         {
           role: "system",
           content:
-            "You correct file-edit strings when the only problem is escaping. " +
+            `You correct file-edit strings when ${problemDescription}. ` +
             "Return XML only using <response><corrected_old_string>...</corrected_old_string><corrected_new_string>...</corrected_new_string></response>. " +
             "Do not change semantics; only fix quoting or escaping so corrected_old_string matches the snippet exactly.",
         },
@@ -773,6 +771,9 @@ async function correctEscapedStringsWithLLM(
       return null;
     }
     if (normalizeLooseText(parsed.newString) !== normalizedNew) {
+      return null;
+    }
+    if (parsed.oldString !== matchedText) {
       return null;
     }
     if (parsed.oldString === parsed.newString) {
@@ -818,9 +819,32 @@ function escapeRegExp(value: string): string {
 function normalizeLooseText(value: string): string {
   return value
     .replace(/\r\n?/g, "\n")
-    .replace(/\\+(?=["'`\\])/g, "")
+    .replace(/\\+(?=["'`\\“”‘’])/g, "")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
     .replace(/[ \t]+/g, " ")
     .trim();
+}
+
+function describeCorrectionProblems(oldString: string, matchedText: string): string {
+  const hasEscapingProblem = normalizeQuotationMarks(oldString) !== normalizeQuotationMarks(matchedText);
+  const hasQuotationMarkProblem = normalizeEscaping(oldString) !== normalizeEscaping(matchedText);
+
+  if (hasEscapingProblem && hasQuotationMarkProblem) {
+    return "the problems are escaping and quotation mark";
+  }
+  if (hasQuotationMarkProblem) {
+    return "the only problem is quotation mark";
+  }
+  return "the only problem is escaping";
+}
+
+function normalizeEscaping(value: string): string {
+  return value.replace(/\\+(?=["'`\\“”‘’])/g, "");
+}
+
+function normalizeQuotationMarks(value: string): string {
+  return value.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
 }
 
 function similarityScore(left: string, right: string): number {

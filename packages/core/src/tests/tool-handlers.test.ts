@@ -661,19 +661,22 @@ test("Edit accepts a unique loose-escape match when only escaping differs", asyn
         client: {
           chat: {
             completions: {
-              create: async () => ({
-                choices: [
-                  {
-                    message: {
-                      content:
-                        "<response>" +
-                        "<corrected_old_string><![CDATA[params['city_json'] = f'\"{city}\"']]></corrected_old_string>" +
-                        "<corrected_new_string><![CDATA[params['city_json'] = city]]></corrected_new_string>" +
-                        "</response>",
+              create: async (request: { messages?: Array<{ content?: string }> }) => {
+                assert.match(String(request.messages?.[0]?.content ?? ""), /the only problem is escaping/);
+                return {
+                  choices: [
+                    {
+                      message: {
+                        content:
+                          "<response>" +
+                          "<corrected_old_string><![CDATA[params['city_json'] = f'\"{city}\"']]></corrected_old_string>" +
+                          "<corrected_new_string><![CDATA[params['city_json'] = city]]></corrected_new_string>" +
+                          "</response>",
+                      },
                     },
-                  },
-                ],
-              }),
+                  ],
+                };
+              },
             },
           },
         } as any,
@@ -738,6 +741,200 @@ test("Edit accepts a unique loose-escape match for over-escaped unicode sequence
   assert.equal(llmCalls, 1);
   assert.equal(editResult.metadata?.matched_via, "llm_escape_correction");
   assert.equal(fs.readFileSync(filePath, "utf8"), 'const sequence = "\\u001B[13;130u";\n');
+});
+
+test("Edit uses LLM correction when straight and curly quotation marks differ", async () => {
+  const workspace = createTempWorkspace();
+  const filePath = path.join(workspace, "output_cn.md");
+  const original =
+    "标签必须独占一行。计划通常含标题、摘要、接口变化、测试场景和已选择的假设。" +
+    "模板禁止要求用户“是否继续”，因为 TUI 负责提供实施确认。\n";
+  fs.writeFileSync(filePath, original, "utf8");
+
+  const sessionId = "quotation-mark-correction";
+  const snippet = await readSnippet(filePath, sessionId, workspace);
+  let llmCalls = 0;
+  const editResult = await handleEditTool(
+    {
+      snippet_id: snippet.id,
+      old_string:
+        "标签必须独占一行。计划通常含标题、摘要、接口变化、测试场景和已选择的假设。" +
+        '模板禁止要求用户"是否继续"，因为 TUI 负责提供实施确认。',
+      new_string:
+        "标签应该独占一行。计划通常含标题、摘要、接口变化、测试场景和已选择的假设。" +
+        '模板禁止要求用户"是否继续"，因为 TUI 负责提供实施确认。',
+    },
+    createContext(sessionId, workspace, {
+      createOpenAIClient: () => ({
+        client: {
+          chat: {
+            completions: {
+              create: async (request: { messages?: Array<{ content?: string }> }) => {
+                llmCalls += 1;
+                assert.match(String(request.messages?.[0]?.content ?? ""), /the only problem is quotation mark/);
+                return {
+                  choices: [
+                    {
+                      message: {
+                        content:
+                          "<response>" +
+                          "<corrected_old_string><![CDATA[" +
+                          original.trim() +
+                          "]]></corrected_old_string>" +
+                          "<corrected_new_string><![CDATA[" +
+                          "标签应该独占一行。计划通常含标题、摘要、接口变化、测试场景和已选择的假设。" +
+                          "模板禁止要求用户“是否继续”，因为 TUI 负责提供实施确认。" +
+                          "]]></corrected_new_string>" +
+                          "</response>",
+                      },
+                    },
+                  ],
+                };
+              },
+            },
+          },
+        } as any,
+        model: "test-model",
+        thinkingEnabled: false,
+      }),
+    })
+  );
+
+  assert.equal(editResult.ok, true);
+  assert.equal(llmCalls, 1);
+  assert.equal(editResult.metadata?.matched_via, "llm_escape_correction");
+  assert.equal(
+    fs.readFileSync(filePath, "utf8"),
+    "标签应该独占一行。计划通常含标题、摘要、接口变化、测试场景和已选择的假设。" +
+      "模板禁止要求用户“是否继续”，因为 TUI 负责提供实施确认。\n"
+  );
+});
+
+test("Edit describes combined escaping and quotation mark corrections", async () => {
+  const workspace = createTempWorkspace();
+  const filePath = path.join(workspace, "quotes.ts");
+  fs.writeFileSync(filePath, "const label = “old”;\n", "utf8");
+
+  const sessionId = "escaping-and-quotation-mark-correction";
+  const snippet = await readSnippet(filePath, sessionId, workspace);
+  const editResult = await handleEditTool(
+    {
+      snippet_id: snippet.id,
+      old_string: 'const label = \\\\"old\\\\";',
+      new_string: 'const label = \\\\"new\\\\";',
+    },
+    createContext(sessionId, workspace, {
+      createOpenAIClient: () => ({
+        client: {
+          chat: {
+            completions: {
+              create: async (request: { messages?: Array<{ content?: string }> }) => {
+                assert.match(
+                  String(request.messages?.[0]?.content ?? ""),
+                  /the problems are escaping and quotation mark/
+                );
+                return {
+                  choices: [
+                    {
+                      message: {
+                        content:
+                          "<response>" +
+                          "<corrected_old_string><![CDATA[const label = “old”;]]></corrected_old_string>" +
+                          "<corrected_new_string><![CDATA[const label = “new”;]]></corrected_new_string>" +
+                          "</response>",
+                      },
+                    },
+                  ],
+                };
+              },
+            },
+          },
+        } as any,
+        model: "test-model",
+        thinkingEnabled: false,
+      }),
+    })
+  );
+
+  assert.equal(editResult.ok, true);
+  assert.equal(editResult.metadata?.matched_via, "llm_escape_correction");
+  assert.equal(fs.readFileSync(filePath, "utf8"), "const label = “new”;\n");
+});
+
+test("Edit rejects corrected new_string unless corrected old_string exactly matches", async () => {
+  const workspace = createTempWorkspace();
+  const filePath = path.join(workspace, "quotes.md");
+  const original = "模板禁止要求用户“是否继续”。\n";
+  fs.writeFileSync(filePath, original, "utf8");
+
+  const sessionId = "inexact-corrected-old-string";
+  const snippet = await readSnippet(filePath, sessionId, workspace);
+  let llmCalls = 0;
+  const editResult = await handleEditTool(
+    {
+      snippet_id: snippet.id,
+      old_string: '模板禁止要求用户"是否继续"。',
+      new_string: '模板允许要求用户"是否继续"。',
+    },
+    createContext(sessionId, workspace, {
+      createOpenAIClient: () => ({
+        client: {
+          chat: {
+            completions: {
+              create: async () => {
+                llmCalls += 1;
+                if (llmCalls === 1) {
+                  return {
+                    choices: [
+                      {
+                        message: {
+                          content:
+                            "<response>" +
+                            '<corrected_old_string><![CDATA[模板禁止要求用户"是否继续"。]]></corrected_old_string>' +
+                            '<corrected_new_string><![CDATA[模板允许要求用户"是否继续"。]]></corrected_new_string>' +
+                            "</response>",
+                        },
+                      },
+                    ],
+                  };
+                }
+                return { choices: [{ message: { content: "<response></response>" } }] };
+              },
+            },
+          },
+        } as any,
+        model: "test-model",
+        thinkingEnabled: false,
+      }),
+    })
+  );
+
+  assert.equal(editResult.ok, false);
+  assert.equal(editResult.error, "old_string not found in file.");
+  assert.equal(llmCalls, 2);
+  assert.equal(fs.readFileSync(filePath, "utf8"), original);
+});
+
+test("Edit does not use a loose match when LLM correction is unavailable", async () => {
+  const workspace = createTempWorkspace();
+  const filePath = path.join(workspace, "quotes.md");
+  const original = "模板禁止要求用户“是否继续”。\n";
+  fs.writeFileSync(filePath, original, "utf8");
+
+  const sessionId = "unavailable-quotation-mark-correction";
+  const snippet = await readSnippet(filePath, sessionId, workspace);
+  const editResult = await handleEditTool(
+    {
+      snippet_id: snippet.id,
+      old_string: '模板禁止要求用户"是否继续"。',
+      new_string: '模板允许要求用户"是否继续"。',
+    },
+    createContext(sessionId, workspace)
+  );
+
+  assert.equal(editResult.ok, false);
+  assert.equal(editResult.error, "old_string not found in file.");
+  assert.equal(fs.readFileSync(filePath, "utf8"), original);
 });
 
 test("Edit strips accidental read-result tabs after newlines when that creates a unique match", async () => {
