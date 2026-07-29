@@ -75,6 +75,42 @@ test("parseArguments returns defaults for empty args", async () => {
   assert.equal(r.exec, false);
 });
 
+// ── parseArguments: --last flag ─────────────────────────────────────────────────
+
+test("parseArguments returns last: true for --last", async () => {
+  const r = await parseArguments(["--last"]);
+  assert.ok(!("message" in r));
+  assert.equal(r.last, true);
+  assert.equal(r.resume, undefined);
+});
+
+test("parseArguments returns last: true for -l", async () => {
+  const r = await parseArguments(["-l"]);
+  assert.ok(!("message" in r));
+  assert.equal(r.last, true);
+});
+
+test("parseArguments returns last: false when not passed", async () => {
+  const r = await parseArguments(["-p", "test"]);
+  assert.ok(!("message" in r));
+  assert.equal(r.last, false);
+});
+
+test("parseArguments handles --last with -p", async () => {
+  const r = await parseArguments(["--last", "-p", "hello"]);
+  assert.ok(!("message" in r));
+  assert.equal(r.last, true);
+  assert.equal(r.prompt, "hello");
+});
+
+test("parseArguments handles -l with -p and -x", async () => {
+  const r = await parseArguments(["-l", "-x", "-p", "hello"]);
+  assert.ok(!("message" in r));
+  assert.equal(r.last, true);
+  assert.equal(r.exec, true);
+  assert.equal(r.prompt, "hello");
+});
+
 // ── parseArguments: -r alias ───────────────────────────────────────────────────
 
 test("parseArguments returns session ID after -r", async () => {
@@ -257,6 +293,28 @@ test("parseArguments exits on invalid --resume session ID", async () => {
   await withMockedExit(async (exitSpy) => {
     try {
       await parseArguments(["--resume", "not-a-uuid"]);
+    } catch {
+      /* expected */
+    }
+    assert.ok(exitSpy.calls.length >= 1);
+  });
+});
+
+test("parseArguments exits when --last is combined with --resume", async () => {
+  await withMockedExit(async (exitSpy) => {
+    try {
+      await parseArguments(["--last", "--resume", "0a5cb7a5-c39d-4c39-a11b-05f8b22b8df6"]);
+    } catch {
+      /* expected */
+    }
+    assert.ok(exitSpy.calls.length >= 1);
+  });
+});
+
+test("parseArguments exits when --last is combined with bare --resume", async () => {
+  await withMockedExit(async (exitSpy) => {
+    try {
+      await parseArguments(["--last", "--resume"]);
     } catch {
       /* expected */
     }

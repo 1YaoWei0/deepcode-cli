@@ -35,6 +35,8 @@ export interface ParsedCliArgs {
   version: boolean;
   /** True when --help / -h was passed */
   help: boolean;
+  /** True when --last / -l was passed (resume the most recent session for the current project) */
+  last: boolean;
 }
 
 const EPILOG = [
@@ -95,6 +97,12 @@ async function configureYargs(argv?: string[]) {
           type: "string",
           describe: "Resume a specific session by its ID. Use without an ID to show session picker.",
         })
+        .option("last", {
+          alias: "l",
+          type: "boolean",
+          default: false,
+          describe: "Resume the most recent session for the current project directory.",
+        })
         .check((argv: { [x: string]: unknown }) => {
           const query = argv["query"] as string | string[] | undefined;
           const hasPositionalQuery = Array.isArray(query) ? query.length > 0 : !!query;
@@ -107,6 +115,10 @@ async function configureYargs(argv?: string[]) {
           // bare --resume conflicts with --prompt
           if (argv["resume"] === "" && prompt) {
             return "Cannot use --resume without a session ID together with --prompt.\nUse --resume <sessionId> -p <prompt> to resume a session and send a prompt.";
+          }
+          // --last conflicts with --resume
+          if (argv["last"] === true && argv["resume"] !== undefined) {
+            return "Cannot use --last together with --resume. Use --last to resume the most recent session, or --resume <sessionId> for a specific session.";
           }
           // validate --resume <sessionId> format if provided
           if (argv["resume"] && argv["resume"] !== "" && !isValidSessionId(argv["resume"] as string)) {
@@ -175,5 +187,6 @@ export async function parseArguments(argv?: string[]): Promise<ParsedCliArgs> {
     resume,
     version: parsed.version === true,
     help: parsed.help === true,
+    last: parsed.last === true,
   };
 }

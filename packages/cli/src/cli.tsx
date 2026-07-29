@@ -32,6 +32,25 @@ async function main(): Promise<void> {
   let resumeSessionId = parsed.resume;
   const projectRoot = process.cwd();
 
+  // Resolve --last to the most recent session ID for the current project
+  if (parsed.last) {
+    const projectCode = getProjectCode(projectRoot);
+    const indexPath = join(homedir(), ".deepcode", "projects", projectCode, "sessions-index.json");
+    try {
+      const index = JSON.parse(readFileSync(indexPath, "utf-8"));
+      const entries: { id: string; updateTime: string }[] = Array.isArray(index?.entries) ? index.entries : [];
+      if (entries.length === 0) {
+        writeStderrLine("No previous sessions found for the current project.\n");
+        process.exit(1);
+      }
+      const mostRecent = entries.reduce((a, b) => (a.updateTime > b.updateTime ? a : b));
+      resumeSessionId = mostRecent.id;
+    } catch {
+      writeStderrLine("No previous sessions found for the current project.\n");
+      process.exit(1);
+    }
+  }
+
   if (parsed.exec) {
     process.exitCode = await runExecMode({
       prompt: parsed.prompt!,
