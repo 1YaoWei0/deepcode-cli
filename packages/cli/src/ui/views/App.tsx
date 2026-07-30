@@ -48,7 +48,6 @@ import type {
   UserPromptContent,
 } from "@vegamo/deepcode-core";
 import { SessionManager } from "@vegamo/deepcode-core";
-import { getCompactPromptTokenThreshold } from "@vegamo/deepcode-core";
 import { writeStdout, writeStdoutLine } from "../../utils/stdio-helpers";
 
 type View = "chat" | "session-list" | "undo" | "mcp-status";
@@ -154,7 +153,7 @@ function App({ projectRoot, initialPrompt, resumeSessionId, onRestart }: AppProp
         }
       },
       onSessionEntryUpdated: (entry) => {
-        setStatusLine(buildStatusLine(entry));
+        setStatusLine(buildStatusLine(entry, resolveCurrentSettings(projectRoot).contextWindow));
         setRunningProcesses(entry.processes);
         setActiveStatus(entry.status);
         setActiveAskPermissions(entry.askPermissions);
@@ -545,7 +544,7 @@ function App({ projectRoot, initialPrompt, resumeSessionId, onRestart }: AppProp
       // Clear first so <Static> resets its index to 0.
       await resetStaticView(loadVisibleMessages(sessionManager, sessionId), { clearScreen: true });
       const session = sessionManager.getSession(sessionId);
-      setStatusLine(session ? buildStatusLine(session) : "");
+      setStatusLine(session ? buildStatusLine(session, resolveCurrentSettings(projectRoot).contextWindow) : "");
       setRunningProcesses(session?.processes ?? null);
       setActiveStatus(session?.status ?? null);
       setActiveAskPermissions(session?.askPermissions);
@@ -556,7 +555,7 @@ function App({ projectRoot, initialPrompt, resumeSessionId, onRestart }: AppProp
       }
       await refreshSkills(sessionId);
     },
-    [sessionManager, resetStaticView, pendingPermissionReply, refreshSkills]
+    [sessionManager, resetStaticView, pendingPermissionReply, projectRoot, refreshSkills]
   );
 
   /**
@@ -733,7 +732,7 @@ function App({ projectRoot, initialPrompt, resumeSessionId, onRestart }: AppProp
     const model = settings.model || "";
     const thinkingEnabled = settings.thinkingEnabled;
     const reasoningEffort = settings.reasoningEffort;
-    const maxContextTokens = getCompactPromptTokenThreshold(model);
+    const maxContextTokens = settings.contextWindow;
     if (!activeSessionId) {
       return {
         activeSessionId: null,
