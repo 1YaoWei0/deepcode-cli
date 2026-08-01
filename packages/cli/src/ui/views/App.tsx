@@ -154,7 +154,7 @@ function App({ projectRoot, initialPrompt, resumeSessionId, forkSessionId, onRes
         }
       },
       onSessionEntryUpdated: (entry) => {
-        setStatusLine(buildStatusLine(entry, resolveCurrentSettings(projectRoot).contextWindow));
+        setStatusLine(buildStatusLine(entry, resolveCurrentSettings(projectRoot)));
         setRunningProcesses(entry.processes);
         setActiveStatus(entry.status);
         setActiveAskPermissions(entry.askPermissions);
@@ -357,7 +357,7 @@ function App({ projectRoot, initialPrompt, resumeSessionId, forkSessionId, onRes
           sessionManager.setActiveSessionId(sessionId);
           await resetStaticView(loadVisibleMessages(sessionManager, sessionId), { clearScreen: true });
           const session = sessionManager.getSession(sessionId);
-          setStatusLine(session ? buildStatusLine(session, resolveCurrentSettings(projectRoot).contextWindow) : "");
+          setStatusLine(session ? buildStatusLine(session, resolveCurrentSettings(projectRoot)) : "");
           setRunningProcesses(null);
           setActiveStatus(session?.status ?? null);
           setActiveAskPermissions(undefined);
@@ -505,6 +505,8 @@ function App({ projectRoot, initialPrompt, resumeSessionId, forkSessionId, onRes
 
       if (activeSessionId) {
         sessionManager.addSessionSystemMessage(activeSessionId, content, true, meta);
+        const activeSession = sessionManager.getSession(activeSessionId);
+        setStatusLine(activeSession ? buildStatusLine(activeSession, next) : "");
       } else {
         const now = new Date().toISOString();
         setMessages((prev) => [
@@ -573,7 +575,7 @@ function App({ projectRoot, initialPrompt, resumeSessionId, forkSessionId, onRes
       // Clear first so <Static> resets its index to 0.
       await resetStaticView(loadVisibleMessages(sessionManager, sessionId), { clearScreen: true });
       const session = sessionManager.getSession(sessionId);
-      setStatusLine(session ? buildStatusLine(session, resolveCurrentSettings(projectRoot).contextWindow) : "");
+      setStatusLine(session ? buildStatusLine(session, resolveCurrentSettings(projectRoot)) : "");
       setRunningProcesses(session?.processes ?? null);
       setActiveStatus(session?.status ?? null);
       setActiveAskPermissions(session?.askPermissions);

@@ -102,11 +102,20 @@ export function formatContextUsage(activeTokens: number, contextWindow: number):
   return `${formatTokenCount(safeActiveTokens)}/${formatTokenCount(contextWindow)} [${bar}] ${percent}%`;
 }
 
-export function buildStatusLine(entry: SessionEntry, contextWindow: number): string {
+export function buildStatusLine(
+  entry: SessionEntry,
+  settings: Pick<ModelConfigSelection, "model" | "thinkingEnabled" | "reasoningEffort"> & {
+    contextWindow: number;
+  }
+): string {
   const parts: string[] = [];
   parts.push(`status: ${entry.status}`);
   if (typeof entry.activeTokens === "number" && entry.activeTokens > 0) {
-    parts.push(formatContextUsage(entry.activeTokens, contextWindow));
+    parts.push(formatContextUsage(entry.activeTokens, settings.contextWindow));
+  }
+  const model = settings.model.trim();
+  if (model) {
+    parts.push(settings.thinkingEnabled ? `${model} ${settings.reasoningEffort}` : model);
   }
   if (entry.failReason) {
     parts.push(`fail: ${entry.failReason}`);

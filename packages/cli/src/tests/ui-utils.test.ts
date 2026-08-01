@@ -40,15 +40,49 @@ test("buildStatusLine replaces the tokens label while preserving status and fail
     processes: null,
   };
 
-  assert.equal(buildStatusLine(entry, 1000), "status: failed · 20/1000 [░░░░░░░░░░] 2% · fail: boom");
+  assert.equal(
+    buildStatusLine(entry, {
+      contextWindow: 1000,
+      model: "deepseek-v4-flash",
+      thinkingEnabled: true,
+      reasoningEffort: "max",
+    }),
+    "status: failed · 20/1000 [░░░░░░░░░░] 2% · deepseek-v4-flash max · fail: boom"
+  );
 });
 
-test("buildStatusLine omits context usage when no active tokens exist", () => {
+test("buildStatusLine omits context usage and reasoning effort when thinking is disabled", () => {
   const entry = {
     status: "pending",
     activeTokens: 0,
     failReason: null,
   } as SessionEntry;
 
-  assert.equal(buildStatusLine(entry, 1024 * 1024), "status: pending");
+  assert.equal(
+    buildStatusLine(entry, {
+      contextWindow: 1024 * 1024,
+      model: "deepseek-v4-flash",
+      thinkingEnabled: false,
+      reasoningEffort: "max",
+    }),
+    "status: pending · deepseek-v4-flash"
+  );
+});
+
+test("buildStatusLine omits an empty model", () => {
+  const entry = {
+    status: "pending",
+    activeTokens: 0,
+    failReason: null,
+  } as SessionEntry;
+
+  assert.equal(
+    buildStatusLine(entry, {
+      contextWindow: 1024 * 1024,
+      model: "  ",
+      thinkingEnabled: true,
+      reasoningEffort: "max",
+    }),
+    "status: pending"
+  );
 });
