@@ -55,6 +55,7 @@ import {
 import { clearSessionWorkingDir } from "./tools/bash-handler";
 import { reportNewPrompt } from "./common/telemetry";
 import { OpenAIMessageConverter } from "./common/openai-message-converter";
+import { supportsMultimodal } from "./common/model-capabilities";
 
 export type { PermissionScope } from "./settings";
 export type {
@@ -119,6 +120,21 @@ function sanitizeProjectCodePart(value: string): string {
     .replace(/[^A-Za-z0-9._-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^[-.]+|[-.]+$/g, "");
+}
+
+function replaceStringValues(value: unknown, search: string, replacement: string): unknown {
+  if (typeof value === "string") {
+    return value.split(search).join(replacement);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceStringValues(item, search, replacement));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, replaceStringValues(item, search, replacement)])
+    );
+  }
+  return value;
 }
 
 function isUsageRecord(value: unknown): value is Record<string, unknown> {
@@ -298,6 +314,11 @@ export type UserPromptContent = {
   permissions?: UserToolPermission[];
   alwaysAllows?: PermissionScope[];
   planMode?: boolean;
+};
+
+type PersistedPromptImage = {
+  buffer: Buffer;
+  extension: ".jpg" | ".png" | ".webp";
 };
 
 export type SkillInfo = {
@@ -1112,12 +1133,14 @@ ${agentInstructions}
     this.throwIfAborted(signal);
 
     const sessionId = crypto.randomUUID();
+    const originalSummary = userPrompt.text ? userPrompt.text.slice(0, 100) : "[Image Prompt]";
+    userPrompt = this.preparePromptImages(sessionId, userPrompt);
     this.ensureFileHistorySession(sessionId);
     const now = new Date().toISOString();
     const index = this.loadSessionsIndex();
     const entry: SessionEntry = {
       id: sessionId,
-      summary: userPrompt.text ? userPrompt.text.slice(0, 100) : "[Image Prompt]",
+      summary: originalSummary,
       assistantReply: null,
       assistantThinking: null,
       assistantRefusal: null,
@@ -1207,6 +1230,11 @@ ${agentInstructions}
   async replySession(sessionId: string, userPrompt: UserPromptContent, controller?: AbortController): Promise<void> {
     const signal = controller?.signal;
     this.throwIfAborted(signal);
+    if (!this.getSession(sessionId)) {
+      await this.createSession(userPrompt, controller);
+      return;
+    }
+    userPrompt = this.preparePromptImages(sessionId, userPrompt);
     appendProjectPermissionAllows(this.projectRoot, userPrompt.alwaysAllows, {
       inheritedPermissions: this.getResolvedSettings().permissions,
     });
@@ -1222,10 +1250,7 @@ ${agentInstructions}
       updateTime: now,
     }));
 
-    if (!updated) {
-      await this.createSession(userPrompt, controller);
-      return;
-    }
+    if (!updated) return;
 
     this.appendPlanModeTransitionMessages(sessionId, previousPlanMode, nextPlanMode);
 
@@ -1429,7 +1454,7 @@ ${agentInstructions}
               toolCalls,
               settings: this.getResolvedSettings().permissions,
               forceAskScopes: this.getSession(sessionId)?.planMode ? PLAN_MODE_FORCE_ASK_SCOPES : undefined,
-              readPermissionExemptPaths: this.getSkillScanRoots().map((entry) => entry.root),
+              readPermissionExemptPaths: this.getReadPermissionExemptPaths(sessionId),
               resolveSnippetPath: (id, snippetId) => getSnippet(id, snippetId)?.filePath,
             })
           : null;
@@ -1802,10 +1827,11 @@ ${agentInstructions}
       },
     };
 
-    this.saveSessionMessages(
+    const forkedMessages = this.copySessionImagesForFork(sourceSessionId, sessionId, sourceMessages).map((message) => ({
+      ...message,
       sessionId,
-      sourceMessages.map((message) => ({ ...message, sessionId }))
-    );
+    }));
+    this.saveSessionMessages(sessionId, forkedMessages);
     this.getFileHistory().forkSession(sourceSessionId, sessionId);
 
     const index = this.loadSessionsIndex();
@@ -2108,6 +2134,15 @@ ${agentInstructions}
     return path.join(projectDir, `${sessionId}.jsonl`);
   }
 
+  private getSessionImagesDir(sessionId: string): string {
+    const { projectDir } = this.getProjectStorage();
+    return path.join(projectDir, "images", sessionId);
+  }
+
+  private getReadPermissionExemptPaths(sessionId: string): string[] {
+    return [...this.getSkillScanRoots().map((entry) => entry.root), this.getSessionImagesDir(sessionId)];
+  }
+
   private removeSessionMessages(sessionIds: string[]): void {
     for (const sessionId of sessionIds) {
       const messagePath = this.getSessionMessagesPath(sessionId);
@@ -2144,6 +2179,11 @@ ${agentInstructions}
     this.sessionControllers.delete(sessionId);
     if (options.removeMessages) {
       this.removeSessionMessages([sessionId]);
+      try {
+        fs.rmSync(this.getSessionImagesDir(sessionId), { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup failures, matching message cleanup behavior.
+      }
     }
   }
 
@@ -2198,6 +2238,94 @@ ${agentInstructions}
       meta: { userPrompt: this.cloneUserPromptForMeta(prompt) },
       checkpointHash: this.getCurrentCheckpointHash(sessionId),
     };
+  }
+
+  private preparePromptImages(sessionId: string, prompt: UserPromptContent): UserPromptContent {
+    if (supportsMultimodal(this.getResolvedSettings().model)) {
+      return prompt;
+    }
+
+    const imageUrls = prompt.imageUrls?.filter(Boolean) ?? [];
+    if (imageUrls.length === 0) {
+      return prompt;
+    }
+
+    const images = imageUrls.map((dataUrl, index) => this.decodePersistedPromptImage(dataUrl, index));
+    const imagesDir = this.getSessionImagesDir(sessionId);
+    const createdPaths: string[] = [];
+    try {
+      fs.mkdirSync(imagesDir, { recursive: true });
+      for (const image of images) {
+        const imagePath = path.join(imagesDir, `${crypto.randomUUID()}${image.extension}`);
+        fs.writeFileSync(imagePath, image.buffer, { flag: "wx", mode: 0o600 });
+        createdPaths.push(imagePath);
+      }
+    } catch (error) {
+      for (const imagePath of createdPaths) {
+        try {
+          fs.unlinkSync(imagePath);
+        } catch {
+          // Best-effort rollback of this submission only.
+        }
+      }
+      try {
+        fs.rmdirSync(imagesDir);
+      } catch {
+        // Preserve directories containing images from earlier prompts.
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to save pasted image: ${message}`);
+    }
+
+    const imageXml = [
+      "<images>",
+      ...createdPaths.map((imagePath, index) => `  <image name="[Image #${index + 1}]" path="${imagePath}" />`),
+      "</images>",
+    ].join("\n");
+    const text = prompt.text?.trimEnd() ?? "";
+    return {
+      ...prompt,
+      text: text ? `${text}\n\n${imageXml}` : imageXml,
+    };
+  }
+
+  private decodePersistedPromptImage(dataUrl: string, index: number): PersistedPromptImage {
+    const match = /^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\r\n]+)$/i.exec(dataUrl);
+    if (!match) {
+      throw new Error(`Image #${index + 1} is invalid or unsupported. Only JPEG, PNG, and WebP are supported.`);
+    }
+
+    const payload = match[2].replace(/[\r\n]/g, "");
+    const buffer = Buffer.from(payload, "base64");
+    const mimeType = match[1].toLowerCase();
+    const extension = mimeType === "image/png" ? ".png" : mimeType === "image/webp" ? ".webp" : ".jpg";
+    return { buffer, extension };
+  }
+
+  private copySessionImagesForFork(
+    sourceSessionId: string,
+    targetSessionId: string,
+    messages: SessionMessage[]
+  ): SessionMessage[] {
+    const sourceDir = this.getSessionImagesDir(sourceSessionId);
+    if (!fs.existsSync(sourceDir)) {
+      return messages;
+    }
+
+    const targetDir = this.getSessionImagesDir(targetSessionId);
+    try {
+      fs.mkdirSync(path.dirname(targetDir), { recursive: true });
+      fs.cpSync(sourceDir, targetDir, { recursive: true, errorOnExist: true });
+      return replaceStringValues(messages, sourceDir, targetDir) as SessionMessage[];
+    } catch (error) {
+      try {
+        fs.rmSync(targetDir, { recursive: true, force: true });
+      } catch {
+        // Keep the original copy error.
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to copy session images while forking: ${message}`);
+    }
   }
 
   private appendPlanModeTransitionMessages(sessionId: string, wasEnabled: boolean, isEnabled: boolean): void {
@@ -2564,6 +2692,8 @@ ${agentInstructions}
       return typeof args.explanation === "string" ? args.explanation.trim() : "";
     } else if (toolName === "write") {
       return typeof args.file_path === "string" ? args.file_path.trim() : "";
+    } else if (toolName === "UnderstandImage") {
+      return typeof args.image_path === "string" ? args.image_path.trim() : "";
     } else if (toolName === "edit") {
       const filePath = typeof args.file_path === "string" ? args.file_path.trim() : "";
       if (filePath) {

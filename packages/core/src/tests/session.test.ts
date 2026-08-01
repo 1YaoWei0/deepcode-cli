@@ -2891,6 +2891,23 @@ test("Write tool params prefer file_path even when content appears first", () =>
   assert.equal(toolMessage.meta?.paramsMd, filePath);
 });
 
+test("UnderstandImage tool params show image_path instead of prompt", () => {
+  const manager = createSessionManager(process.cwd(), "machine-id-understand-image-params");
+  const imagePath = path.join(process.cwd(), "screenshot.png");
+
+  const toolMessage = (manager as any).buildToolMessage(
+    "session-1",
+    "call-understand-image-1",
+    JSON.stringify({ ok: true, name: "UnderstandImage", output: "A screenshot." }),
+    {
+      name: "UnderstandImage",
+      arguments: JSON.stringify({ prompt: "Describe this image", image_path: imagePath }),
+    }
+  ) as SessionMessage;
+
+  assert.equal(toolMessage.meta?.paramsMd, imagePath);
+});
+
 test("LLM tool calls without ids receive generated 32 character ids", async () => {
   const workspace = createTempDir("deepcode-tool-call-id-workspace-");
   const home = createTempDir("deepcode-tool-call-id-home-");
@@ -3523,6 +3540,86 @@ test("SessionManager.deleteSession removes the messages file", () => {
   assert.equal(fs.existsSync(messagePath), false);
 });
 
+test("non-multimodal sessions persist pasted images, append paths, and clean them on delete", async () => {
+  const workspace = createTempDir("deepcode-session-image-workspace-");
+  const home = createTempDir("deepcode-session-image-home-");
+  setHomeDir(home);
+  const manager = createSessionManagerForModel(workspace, "deepseek-chat");
+  (manager as any).activateSession = async () => {};
+
+  const sessionId = await manager.createSession({
+    imageUrls: ["data:image/png;base64,aGVsbG8=", "data:image/webp;base64,d29ybGQ="],
+  });
+  const imagesDir = path.join(home, ".deepcode", "projects", getProjectCode(workspace), "images", sessionId);
+  const imageFiles = fs.readdirSync(imagesDir).sort();
+  const userMessage = manager.listSessionMessages(sessionId).find((message) => message.role === "user");
+
+  assert.equal(imageFiles.length, 2);
+  assert.deepEqual(imageFiles.map((file) => path.extname(file)).sort(), [".png", ".webp"]);
+  assert.match(userMessage?.content ?? "", /<images>/);
+  assert.match(userMessage?.content ?? "", /name="\[Image #1\]"/);
+  assert.match(userMessage?.content ?? "", new RegExp(escapeRegExp(imagesDir)));
+  assert.equal(Array.isArray(userMessage?.contentParams), true);
+
+  manager.deleteSession(sessionId);
+  assert.equal(fs.existsSync(imagesDir), false);
+});
+
+test("native multimodal sessions keep pasted images inline without persisting them", async () => {
+  const workspace = createTempDir("deepcode-native-image-workspace-");
+  const home = createTempDir("deepcode-native-image-home-");
+  setHomeDir(home);
+  const manager = createSessionManagerForModel(workspace, "gpt-4o");
+  (manager as any).activateSession = async () => {};
+
+  const sessionId = await manager.createSession({ imageUrls: ["data:image/png;base64,aGVsbG8="] });
+  const imagesDir = path.join(home, ".deepcode", "projects", getProjectCode(workspace), "images", sessionId);
+  const userMessage = manager.listSessionMessages(sessionId).find((message) => message.role === "user");
+
+  assert.equal(fs.existsSync(imagesDir), false);
+  assert.equal(userMessage?.content, "");
+  assert.equal(Array.isArray(userMessage?.contentParams), true);
+});
+
+test("non-multimodal sessions reject unsupported pasted images before creating a session", async () => {
+  const workspace = createTempDir("deepcode-invalid-image-workspace-");
+  const home = createTempDir("deepcode-invalid-image-home-");
+  setHomeDir(home);
+  const manager = createSessionManagerForModel(workspace, "deepseek-chat");
+  (manager as any).activateSession = async () => {};
+
+  await assert.rejects(
+    manager.createSession({ imageUrls: ["data:image/gif;base64,aGVsbG8="] }),
+    /Only JPEG, PNG, and WebP/
+  );
+  assert.equal(manager.listSessions().length, 0);
+});
+
+test("forkSession copies image resources and rewrites stored paths", async () => {
+  if (!hasGit()) {
+    return;
+  }
+  const workspace = createTempDir("deepcode-fork-image-workspace-");
+  const home = createTempDir("deepcode-fork-image-home-");
+  setHomeDir(home);
+  const manager = createSessionManagerForModel(workspace, "deepseek-chat");
+  (manager as any).activateSession = async () => {};
+  const sourceSessionId = await manager.createSession({ imageUrls: ["data:image/png;base64,aGVsbG8="] });
+  const forkedSessionId = manager.forkSession(sourceSessionId);
+  const projectImagesDir = path.join(home, ".deepcode", "projects", getProjectCode(workspace), "images");
+  const sourceDir = path.join(projectImagesDir, sourceSessionId);
+  const forkedDir = path.join(projectImagesDir, forkedSessionId);
+  const forkedUserMessage = manager.listSessionMessages(forkedSessionId).find((message) => message.role === "user");
+
+  assert.equal(fs.readdirSync(forkedDir).length, 1);
+  assert.equal(forkedUserMessage?.content?.includes(forkedDir), true);
+  assert.equal(forkedUserMessage?.content?.includes(sourceDir), false);
+
+  manager.deleteSession(sourceSessionId);
+  assert.equal(fs.existsSync(sourceDir), false);
+  assert.equal(fs.existsSync(forkedDir), true);
+});
+
 test("SessionManager.deleteSession returns false when session does not exist", () => {
   const workspace = createTempDir("deepcode-delete-nonexist-workspace-");
   const home = createTempDir("deepcode-delete-nonexist-home-");
@@ -3790,6 +3887,21 @@ function createSessionManager(projectRoot: string, machineId: string): SessionMa
       machineId,
     }),
     getResolvedSettings: () => ({ model: "test-model" }),
+    renderMarkdown: (text) => text,
+    onAssistantMessage: () => {},
+  });
+}
+
+function createSessionManagerForModel(projectRoot: string, model: string): SessionManager {
+  return new SessionManager({
+    projectRoot,
+    createOpenAIClient: () => ({
+      client: null,
+      model,
+      thinkingEnabled: false,
+      machineId: "machine-id-image-test",
+    }),
+    getResolvedSettings: () => ({ model }),
     renderMarkdown: (text) => text,
     onAssistantMessage: () => {},
   });
