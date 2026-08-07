@@ -28,6 +28,7 @@ export type {
   ProcessTimeoutControl,
   BackgroundProcessCompletion,
   ToolExecutionFollowUpMessage,
+  PluginRateLimitedTool,
 } from "../common/tool-types";
 
 const BUILT_IN_TOOL_NAME_ALIASES = new Map<string, string>([
@@ -167,6 +168,7 @@ export class ToolExecutor {
         onBackgroundProcessComplete: hooks?.onBackgroundProcessComplete,
         onBeforeFileMutation: hooks?.onBeforeFileMutation,
         onAfterFileMutation: hooks?.onAfterFileMutation,
+        onPluginRateLimitExceeded: hooks?.onPluginRateLimitExceeded,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

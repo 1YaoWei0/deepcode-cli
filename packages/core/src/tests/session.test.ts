@@ -3771,6 +3771,42 @@ test("SessionManager ignores malformed fork lineage in persisted entries", () =>
   assert.equal(manager.getSession(sessionId)?.forkedFrom, undefined);
 });
 
+test("SessionManager persists plugin rate limits with UnderstandImage priority and does not copy them to forks", () => {
+  const workspace = createTempDir("deepcode-plugin-rate-limit-workspace-");
+  const home = createTempDir("deepcode-plugin-rate-limit-home-");
+  setHomeDir(home);
+  const manager = createSessionManager(workspace, "machine-id-plugin-rate-limit");
+  const sessionId = createSessionAndMessages(manager, "plugin-rate-limit-session", "Rate limited");
+
+  (manager as any).recordPluginRateLimitExceeded(sessionId, "WebSearch");
+  assert.equal(manager.getSession(sessionId)?.pluginRateLimitedTool, "WebSearch");
+
+  (manager as any).recordPluginRateLimitExceeded(sessionId, "UnderstandImage");
+  (manager as any).recordPluginRateLimitExceeded(sessionId, "WebSearch");
+  assert.equal(manager.getSession(sessionId)?.pluginRateLimitedTool, "UnderstandImage");
+
+  const reloaded = createSessionManager(workspace, "machine-id-plugin-rate-limit");
+  assert.equal(reloaded.getSession(sessionId)?.pluginRateLimitedTool, "UnderstandImage");
+
+  const forkedSessionId = reloaded.forkSession(sessionId);
+  assert.equal(reloaded.getSession(forkedSessionId)?.pluginRateLimitedTool, undefined);
+});
+
+test("SessionManager ignores malformed plugin rate limit tools in persisted entries", () => {
+  const workspace = createTempDir("deepcode-plugin-rate-limit-malformed-workspace-");
+  const home = createTempDir("deepcode-plugin-rate-limit-malformed-home-");
+  setHomeDir(home);
+  const manager = createSessionManager(workspace, "machine-id-plugin-rate-limit-malformed");
+  const sessionId = createSessionAndMessages(manager, "plugin-rate-limit-malformed", "Malformed");
+  const projectDir = (manager as any).getProjectStorage().projectDir;
+  const indexPath = path.join(projectDir, "sessions-index.json");
+  const persisted = JSON.parse(fs.readFileSync(indexPath, "utf8"));
+  persisted.entries[0].pluginRateLimitedTool = "UnknownTool";
+  fs.writeFileSync(indexPath, JSON.stringify(persisted), "utf8");
+
+  assert.equal(manager.getSession(sessionId)?.pluginRateLimitedTool, undefined);
+});
+
 /**
  * Helper: creates a session and writes a few messages to it so we can test
  * that deleteSession removes both the index entry and the messages file.

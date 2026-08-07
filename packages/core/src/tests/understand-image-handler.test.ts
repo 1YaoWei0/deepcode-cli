@@ -65,13 +65,38 @@ test("UnderstandImage reports an HTTP 200 business error", async () => {
       headers: { "Content-Type": "application/json" },
     })) as typeof fetch;
 
+  const rateLimitedTools: string[] = [];
   const result = await handleUnderstandImageTool(
     { prompt: "Describe it", image_path: imagePath },
-    createContext(workspace)
+    createContext(workspace, {
+      onPluginRateLimitExceeded: (tool) => rateLimitedTools.push(tool),
+    })
   );
 
   assert.equal(result.ok, false);
   assert.equal(result.error, "UnderstandImage API failed: UnderstandImage rate limit exceeded.");
+  assert.deepEqual(rateLimitedTools, ["UnderstandImage"]);
+});
+
+test("UnderstandImage matches rate limit errors case-sensitively", async () => {
+  const workspace = createTempDir("deepcode-understand-image-case-sensitive-");
+  const imagePath = path.join(workspace, "pixel.webp");
+  fs.writeFileSync(imagePath, Buffer.from([1]));
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ success: false, reason: "UnderstandImage Rate limit exceeded." }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as typeof fetch;
+  const rateLimitedTools: string[] = [];
+
+  await handleUnderstandImageTool(
+    { prompt: "Describe it", image_path: imagePath },
+    createContext(workspace, {
+      onPluginRateLimitExceeded: (tool) => rateLimitedTools.push(tool),
+    })
+  );
+
+  assert.deepEqual(rateLimitedTools, []);
 });
 
 test("UnderstandImage validates absolute paths, formats, and size before fetching", async () => {
@@ -115,7 +140,7 @@ test("UnderstandImage validates absolute paths, formats, and size before fetchin
 
 function createContext(
   projectRoot: string,
-  hooks: Pick<ToolExecutionContext, "onProcessStart" | "onProcessExit"> = {}
+  hooks: Pick<ToolExecutionContext, "onProcessStart" | "onProcessExit" | "onPluginRateLimitExceeded"> = {}
 ): ToolExecutionContext {
   return {
     sessionId: "understand-image-test",

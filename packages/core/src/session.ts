@@ -24,6 +24,7 @@ import {
   type CreateOpenAIClient,
   type ProcessTimeoutControl,
   type ProcessTimeoutInfo,
+  type PluginRateLimitedTool,
   type ToolCallExecution,
   type ToolExecutionHooks,
 } from "./tools/executor";
@@ -259,6 +260,7 @@ export type SessionEntry = {
   processes: Map<string, SessionProcessEntry> | null; // {pid: process info}
   askPermissions?: AskPermissionRequest[];
   planMode?: boolean;
+  pluginRateLimitedTool?: PluginRateLimitedTool;
   forkedFrom?: {
     sessionId: string;
     messageId: string;
@@ -2546,6 +2548,7 @@ ${agentInstructions}
       onBackgroundProcessComplete: (completion) => this.addBackgroundProcessCompletionMessage(sessionId, completion),
       onBeforeFileMutation: (filePath) => this.prepareFileMutationCheckpoint(sessionId, filePath),
       onAfterFileMutation: (filePath) => this.recordFileMutationCheckpoint(sessionId, filePath),
+      onPluginRateLimitExceeded: (tool) => this.recordPluginRateLimitExceeded(sessionId, tool),
       shouldStop: () => this.isInterrupted(sessionId),
     };
     const parsedToolCalls = toolCalls
@@ -2880,6 +2883,14 @@ ${agentInstructions}
     return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
   }
 
+  private recordPluginRateLimitExceeded(sessionId: string, tool: PluginRateLimitedTool): void {
+    this.updateSessionEntry(sessionId, (entry) => ({
+      ...entry,
+      pluginRateLimitedTool: entry.pluginRateLimitedTool === "UnderstandImage" ? entry.pluginRateLimitedTool : tool,
+      updateTime: new Date().toISOString(),
+    }));
+  }
+
   private removeSessionProcess(sessionId: string, processId: string | number): void {
     const now = new Date().toISOString();
     const processControlKey = this.getProcessControlKey(sessionId, processId);
@@ -3011,8 +3022,13 @@ ${agentInstructions}
       processes: this.deserializeProcesses(value.processes),
       askPermissions: normalizeAskPermissions(value.askPermissions),
       planMode: value.planMode === true,
+      pluginRateLimitedTool: this.normalizePluginRateLimitedTool(value.pluginRateLimitedTool),
       forkedFrom: this.normalizeForkedFrom(value.forkedFrom),
     };
+  }
+
+  private normalizePluginRateLimitedTool(value: unknown): PluginRateLimitedTool | undefined {
+    return value === "UnderstandImage" || value === "WebSearch" ? value : undefined;
   }
 
   private normalizeForkedFrom(value: unknown): SessionEntry["forkedFrom"] {

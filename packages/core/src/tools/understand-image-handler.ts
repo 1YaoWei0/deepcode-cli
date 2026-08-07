@@ -74,6 +74,9 @@ export async function handleUnderstandImageTool(
     if (payload.success !== true) {
       const reason =
         typeof payload.reason === "string" && payload.reason.trim() ? payload.reason.trim() : "Unknown error";
+      if (reason.includes("rate limit exceeded")) {
+        context.onPluginRateLimitExceeded?.("UnderstandImage");
+      }
       return toolError(`UnderstandImage API failed: ${reason}`);
     }
     if (typeof payload.result !== "string" || !payload.result.trim()) {

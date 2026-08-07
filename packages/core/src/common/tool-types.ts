@@ -25,6 +25,8 @@ export type ToolCall = {
   };
 };
 
+export type PluginRateLimitedTool = "UnderstandImage" | "WebSearch";
+
 export type ToolExecutionContext = {
   sessionId: string;
   projectRoot: string;
@@ -37,6 +39,7 @@ export type ToolExecutionContext = {
   onBackgroundProcessComplete?: (completion: BackgroundProcessCompletion) => void;
   onBeforeFileMutation?: (filePath: string) => void;
   onAfterFileMutation?: (filePath: string) => void;
+  onPluginRateLimitExceeded?: (tool: PluginRateLimitedTool) => void;
   bashTimeoutMs?: number;
   bashMinTimeoutMs?: number;
 };
@@ -49,6 +52,7 @@ export type ToolExecutionHooks = {
   onBackgroundProcessComplete?: (completion: BackgroundProcessCompletion) => void;
   onBeforeFileMutation?: (filePath: string) => void;
   onAfterFileMutation?: (filePath: string) => void;
+  onPluginRateLimitExceeded?: (tool: PluginRateLimitedTool) => void;
   shouldStop?: () => boolean;
 };
 

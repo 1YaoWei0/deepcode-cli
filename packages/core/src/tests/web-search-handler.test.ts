@@ -135,6 +135,82 @@ test("WebSearch uses the default API when no script is configured", async () => 
   assert.equal((fetchCalls[0].init?.headers as Record<string, string>).Token, "machine-id-123");
 });
 
+test("WebSearch reports and records a default API rate limit error", async () => {
+  const workspace = createTempWorkspace();
+  const rateLimitedTools: string[] = [];
+  const fakeClient = {
+    chat: {
+      completions: {
+        create: async () => ({
+          choices: [
+            {
+              message: {
+                content: '{"dominant_language":"en","reason":"English sources are more useful."}',
+              },
+            },
+          ],
+        }),
+      },
+    },
+  } as unknown as OpenAI;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ success: false, reason: "WebSearch rate limit exceeded." }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as typeof fetch;
+
+  const result = await handleWebSearchTool(
+    { query: "latest node release" },
+    createContext(workspace, {
+      baseURL: "https://example.com/v1",
+      client: fakeClient,
+      machineId: "machine-id-123",
+      onPluginRateLimitExceeded: (tool) => rateLimitedTools.push(tool),
+    })
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "WebSearch default mode failed: WebSearch API failed: WebSearch rate limit exceeded.");
+  assert.deepEqual(rateLimitedTools, ["WebSearch"]);
+});
+
+test("WebSearch matches rate limit errors case-sensitively", async () => {
+  const workspace = createTempWorkspace();
+  const rateLimitedTools: string[] = [];
+  const fakeClient = {
+    chat: {
+      completions: {
+        create: async () => ({
+          choices: [
+            {
+              message: {
+                content: '{"dominant_language":"en","reason":"English sources are more useful."}',
+              },
+            },
+          ],
+        }),
+      },
+    },
+  } as unknown as OpenAI;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ success: false, reason: "WebSearch Rate limit exceeded." }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as typeof fetch;
+
+  await handleWebSearchTool(
+    { query: "latest node release" },
+    createContext(workspace, {
+      baseURL: "https://example.com/v1",
+      client: fakeClient,
+      machineId: "machine-id-123",
+      onPluginRateLimitExceeded: (tool) => rateLimitedTools.push(tool),
+    })
+  );
+
+  assert.deepEqual(rateLimitedTools, []);
+});
+
 test("WebSearch uses DeepSeek Responses API with the required model", async () => {
   const workspace = createTempWorkspace();
   const starts: Array<{ id: string | number; command: string }> = [];
@@ -314,6 +390,7 @@ function createContext(
     machineId?: string;
     onProcessStart?: (processId: string | number, command: string) => void;
     onProcessExit?: (processId: string | number) => void;
+    onPluginRateLimitExceeded?: ToolExecutionContext["onPluginRateLimitExceeded"];
   } = {}
 ): ToolExecutionContext {
   return {
@@ -338,6 +415,7 @@ function createContext(
     }),
     onProcessStart: options.onProcessStart,
     onProcessExit: options.onProcessExit,
+    onPluginRateLimitExceeded: options.onPluginRateLimitExceeded,
   };
 }
 

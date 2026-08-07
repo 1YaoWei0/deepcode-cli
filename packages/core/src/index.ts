@@ -79,6 +79,7 @@ export type {
   ProcessTimeoutControl,
   BackgroundProcessCompletion,
   ToolExecutionFollowUpMessage,
+  PluginRateLimitedTool,
 } from "./common/tool-types";
 
 // Tool handlers

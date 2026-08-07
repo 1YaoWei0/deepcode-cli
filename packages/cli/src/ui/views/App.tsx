@@ -21,7 +21,7 @@ import {
 } from "../core/ask-user-question";
 import { PermissionPrompt, type PermissionPromptResult } from "./PermissionPrompt";
 import { PlanImplementationPrompt, extractProposedPlan, getImplementationPrompt } from "./PlanImplementationPrompt";
-import { buildExitSummaryText, buildResumeHintText } from "../exit-summary";
+import { buildExitSummaryText, buildPluginRateLimitHintText, buildResumeHintText } from "../exit-summary";
 import { RawMode, useRawModeContext } from "../contexts";
 import { renderMessageToStdout } from "../components/MessageView/utils";
 import {
@@ -303,6 +303,7 @@ function App({ projectRoot, initialPrompt, resumeSessionId, forkSessionId, onRes
         const activeSessionId = sessionManager.getActiveSessionId();
         const session = activeSessionId ? sessionManager.getSession(activeSessionId) : null;
         const resumeHint = buildResumeHintText(activeSessionId ?? undefined);
+        const rateLimitHint = buildPluginRateLimitHintText(session);
 
         writeStdoutLine("\n");
         if (showCommand) {
@@ -316,6 +317,9 @@ function App({ projectRoot, initialPrompt, resumeSessionId, forkSessionId, onRes
         }
         if (resumeHint) {
           writeStdoutLine(resumeHint);
+          if (rateLimitHint) {
+            writeStdoutLine(rateLimitHint);
+          }
           writeStdoutLine("\n");
         }
 

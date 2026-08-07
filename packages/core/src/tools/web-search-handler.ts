@@ -354,7 +354,17 @@ async function runDefaultWebSearchRequest(
     const payload = (await response.json()) as {
       success?: unknown;
       result?: unknown;
+      reason?: unknown;
     };
+
+    if (payload.success !== true) {
+      const reason =
+        typeof payload.reason === "string" && payload.reason.trim() ? payload.reason.trim() : "Unknown error";
+      if (reason.includes("rate limit exceeded")) {
+        context.onPluginRateLimitExceeded?.("WebSearch");
+      }
+      throw new Error(`WebSearch API failed: ${reason}`);
+    }
 
     if (typeof payload.result === "string" && payload.result.trim()) {
       return payload.result.trim();
