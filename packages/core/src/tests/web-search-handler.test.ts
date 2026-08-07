@@ -117,6 +117,7 @@ test("WebSearch uses the default API when no script is configured", async () => 
       baseURL: "https://example.com/v1",
       client: fakeClient,
       machineId: "machine-id-123",
+      plusApiKey: "sk-plus-test",
       onProcessStart: (id, command) => starts.push({ id, command }),
       onProcessExit: (id) => exits.push(id),
     })
@@ -133,11 +134,13 @@ test("WebSearch uses the default API when no script is configured", async () => 
   assert.equal(fetchCalls[0].init?.method, "POST");
   assert.deepEqual(JSON.parse(String(fetchCalls[0].init?.body)), { query: "latest node release" });
   assert.equal((fetchCalls[0].init?.headers as Record<string, string>).Token, "machine-id-123");
+  assert.equal((fetchCalls[0].init?.headers as Record<string, string>)["PLUS-API-KEY"], "sk-plus-test");
 });
 
 test("WebSearch reports and records a default API rate limit error", async () => {
   const workspace = createTempWorkspace();
   const rateLimitedTools: string[] = [];
+  let requestHeaders: RequestInit["headers"];
   const fakeClient = {
     chat: {
       completions: {
@@ -153,11 +156,13 @@ test("WebSearch reports and records a default API rate limit error", async () =>
       },
     },
   } as unknown as OpenAI;
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ success: false, reason: "WebSearch rate limit exceeded." }), {
+  globalThis.fetch = (async (_input: string | URL, init?: RequestInit) => {
+    requestHeaders = init?.headers;
+    return new Response(JSON.stringify({ success: false, reason: "WebSearch rate limit exceeded." }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
-    })) as typeof fetch;
+    });
+  }) as typeof fetch;
 
   const result = await handleWebSearchTool(
     { query: "latest node release" },
@@ -172,6 +177,7 @@ test("WebSearch reports and records a default API rate limit error", async () =>
   assert.equal(result.ok, false);
   assert.equal(result.error, "WebSearch default mode failed: WebSearch API failed: WebSearch rate limit exceeded.");
   assert.deepEqual(rateLimitedTools, ["WebSearch"]);
+  assert.equal((requestHeaders as Record<string, string>)["PLUS-API-KEY"], undefined);
 });
 
 test("WebSearch matches rate limit errors case-sensitively", async () => {
@@ -388,6 +394,7 @@ function createContext(
     webSearchTool?: string;
     env?: Record<string, string>;
     machineId?: string;
+    plusApiKey?: string;
     onProcessStart?: (processId: string | number, command: string) => void;
     onProcessExit?: (processId: string | number) => void;
     onPluginRateLimitExceeded?: ToolExecutionContext["onPluginRateLimitExceeded"];
@@ -412,6 +419,7 @@ function createContext(
       webSearchTool: options.webSearchTool,
       env: options.env,
       machineId: options.machineId,
+      plusApiKey: options.plusApiKey,
     }),
     onProcessStart: options.onProcessStart,
     onProcessExit: options.onProcessExit,

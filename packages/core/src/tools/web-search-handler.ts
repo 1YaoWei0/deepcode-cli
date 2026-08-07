@@ -32,6 +32,7 @@ type LLMClientContext = {
   webSearchTool?: string;
   env?: Record<string, string>;
   machineId?: string;
+  plusApiKey?: string;
 };
 
 export async function handleWebSearchTool(
@@ -132,7 +133,12 @@ async function executeDefaultWebSearch(
     const output =
       llmContext.baseURL === DEEPSEEK_BASE_URL
         ? await runDeepSeekWebSearchRequest(prepared.resolvedQuery, llmContext.client, context)
-        : await runDefaultWebSearchRequest(prepared.resolvedQuery, llmContext.machineId, context);
+        : await runDefaultWebSearchRequest(
+            prepared.resolvedQuery,
+            llmContext.machineId,
+            llmContext.plusApiKey,
+            context
+          );
 
     return {
       ok: true,
@@ -328,6 +334,7 @@ function stripCodeFence(text: string): string {
 async function runDefaultWebSearchRequest(
   query: string,
   machineId: string | undefined,
+  plusApiKey: string | undefined,
   context: ToolExecutionContext
 ): Promise<string> {
   if (!machineId) {
@@ -342,6 +349,7 @@ async function runDefaultWebSearchRequest(
       headers: {
         "Content-Type": "application/json",
         Token: machineId,
+        ...(plusApiKey ? { "PLUS-API-KEY": plusApiKey } : {}),
       },
       body: JSON.stringify({ query }),
     });

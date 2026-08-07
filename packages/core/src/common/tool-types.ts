@@ -14,6 +14,7 @@ export type CreateOpenAIClient = () => {
   webSearchTool?: string;
   env?: Record<string, string>;
   machineId?: string;
+  plusApiKey?: string;
 };
 
 export type ToolCall = {

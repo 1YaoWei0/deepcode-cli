@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import {
   buildNotifyEnv,
   formatDurationSeconds,
@@ -7,9 +10,35 @@ import {
   type NotifyContext,
   type NotifySpawn,
 } from "../common/notify";
-import { applyModelConfigSelection, resolveSettings, resolveSettingsSources } from "../settings";
+import {
+  applyModelConfigSelection,
+  readDeepcodePlusApiKey,
+  resolveSettings,
+  resolveSettingsSources,
+} from "../settings";
 
 const TEST_PROCESS_ENV = {};
+
+test("readDeepcodePlusApiKey reads only a non-empty env key", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "deepcode-plus-settings-"));
+  const settingsPath = path.join(tempDir, "settings.json");
+
+  try {
+    fs.writeFileSync(settingsPath, JSON.stringify({ env: { PLUS_API_KEY: "  sk-plus-test  " } }));
+    assert.equal(readDeepcodePlusApiKey(settingsPath), "sk-plus-test");
+
+    for (const settings of [{}, { env: {} }, { env: { PLUS_API_KEY: "   " } }, { env: { PLUS_API_KEY: 123 } }]) {
+      fs.writeFileSync(settingsPath, JSON.stringify(settings));
+      assert.equal(readDeepcodePlusApiKey(settingsPath), undefined);
+    }
+
+    fs.writeFileSync(settingsPath, "not json");
+    assert.equal(readDeepcodePlusApiKey(settingsPath), undefined);
+    assert.equal(readDeepcodePlusApiKey(path.join(tempDir, "missing.json")), undefined);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
 
 test("resolveSettings reads top-level thinkingEnabled, notify, and webSearchTool", () => {
   const resolved = resolveSettings(

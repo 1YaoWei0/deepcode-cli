@@ -659,8 +659,24 @@ export function getUserSettingsPath(): string {
   return path.join(os.homedir(), ".deepcode", "settings.json");
 }
 
+export function getDeepcodePlusSettingsPath(): string {
+  return path.join(os.homedir(), ".deepcode-plus", "settings.json");
+}
+
 export function getProjectSettingsPath(projectRoot: string): string {
   return path.join(projectRoot, ".deepcode", "settings.json");
+}
+
+export function readDeepcodePlusApiKey(settingsPath: string = getDeepcodePlusSettingsPath()): string | undefined {
+  try {
+    const raw = fs.readFileSync(settingsPath, "utf8");
+    const settings = JSON.parse(raw) as { env?: { PLUS_API_KEY?: unknown } } | null;
+    return typeof settings?.env?.PLUS_API_KEY === "string"
+      ? trimString(settings.env.PLUS_API_KEY) || undefined
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function readSettingsFile(settingsPath: string): DeepcodingSettings | null {
