@@ -116,7 +116,7 @@ Deep Code 支持多模态，可使用ctrl+v从剪贴板粘贴图片。但目前 
 
 ### 怎样启用联网搜索功能？
 
-Deep Code自带免费的、且大部分情况够用的Web Search工具。如果你希望使用自定义脚本进行联网搜索，可以在 `~/.deepcode/settings.json` 中将 `webSearchTool` 设为脚本的完整路径即可。详细步骤可参考：https://github.com/qorzj/web_search_cli
+未配置 `webSearchTool` 时，如果 `BASE_URL` 是 `https://api.deepseek.com`，Deep Code 会使用 DeepSeek Responses API 的联网搜索能力，并固定使用 `deepseek-v4-flash`；其他 API 地址仍使用 Deep Code Web Search API。如果希望使用自定义脚本，可以在 `~/.deepcode/settings.json` 中将 `webSearchTool` 设为脚本的完整路径，自定义脚本始终优先。详细步骤可参考：https://github.com/qorzj/web_search_cli
 
 ### 如何配置 MCP？
 

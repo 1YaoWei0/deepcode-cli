@@ -107,7 +107,9 @@ The following context is injected as environment variables when the notify scrip
 
 #### `webSearchTool` — Custom Web Search
 
-Deep Code has a built-in, free-to-use Web Search tool. If you need custom search logic, set `webSearchTool` to the full path of an executable script:
+When `webSearchTool` is not configured and `BASE_URL` is `https://api.deepseek.com`, Deep Code calls the `web_search` tool through the DeepSeek Responses API with the fixed `deepseek-v4-flash` model, regardless of the `MODEL` setting. Other API endpoints continue to use the Deep Code Web Search API.
+
+For custom search logic, set `webSearchTool` to the full path of an executable script. A custom script always takes precedence over the built-in search:
 
 ```json
 {
