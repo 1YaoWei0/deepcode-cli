@@ -62,7 +62,7 @@ npm install -g @vegamo/deepcode-cli
 
 ### Does Deep Code support understanding images?
 
-Deep Code supports multimodal, but `deepseek-v4` does not support multimodal yet. Some models have multimodal capabilities but impose strict limits on multi-turn dialogue requests. For multimodal input, we recommend using the Volcano Ark `Doubao-Seed-2.0-pro` model, which has the best integration.
+Deep Code includes a free built-in image understanding tool, and you can paste images from the clipboard with `Ctrl+V`. Deep Code itself supports multimodal input, but the `deepseek-v4` model family does not yet support multimodal input.
 
 ### How to automatically send a Slack message after a task completes?
 

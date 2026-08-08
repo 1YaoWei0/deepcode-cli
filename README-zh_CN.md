@@ -114,7 +114,7 @@ Deep Code 的收益来自于工具约束、上下文管理、Agent Skills 和权
 
 ### Deep Code 是否支持理解图片？
 
-Deep Code 支持多模态，可使用ctrl+v从剪贴板粘贴图片。但目前 deepseek-v4 不支持多模态。有些模型虽然有多模态能力，但对多轮对话请求的限制太严。目前多模态输入推荐使用火山方舟的 Doubao-Seed-2.0-pro 模型，适配效果最好。
+Deep Code 内置免费可用的图片理解工具，可使用ctrl+v从剪贴板粘贴图片。Deep Code 本身支持多模态，但目前 deepseek-v4 系列模型还不支持多模态。
 
 ### 怎样在任务完成后自动给 Slack 发消息？
 
